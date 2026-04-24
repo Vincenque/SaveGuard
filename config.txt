@@ -1,0 +1,6 @@
+{
+    "SRC_DIR": "C:\\Users\\Witek\\Saved Games\\kingdomcome2\\saves\\playline4",
+    "BACKUP_FOLDER": "Backups",
+    "IMG_NAME": "KCD2-diary.png",
+    "MONITOR_ROI": {"top": 0, "left": 650, "width": 170, "height": 40}
+}
