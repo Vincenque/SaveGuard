@@ -6,7 +6,13 @@ import importlib.util
 from datetime import datetime
 
 # Setup log directory and log file name at the very beginning
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if getattr(sys, 'frozen', False):
+    # Running as compiled executable
+    SCRIPT_DIR = os.path.dirname(sys.executable)
+else:
+    # Running as a normal Python script
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
 LOGS_DIR = os.path.join(SCRIPT_DIR, "Logs")
 os.makedirs(LOGS_DIR, exist_ok=True)
 startup_time = datetime.now().strftime("%Y-%m-%d--%H-%M-%S")
