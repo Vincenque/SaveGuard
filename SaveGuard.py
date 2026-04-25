@@ -1,5 +1,47 @@
 # SaveGuard.py
+import sys
 import os
+import subprocess
+import importlib.util
+from datetime import datetime
+
+# Setup log directory and log file name at the very beginning
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+LOGS_DIR = os.path.join(SCRIPT_DIR, "Logs")
+os.makedirs(LOGS_DIR, exist_ok=True)
+startup_time = datetime.now().strftime("%Y-%m-%d--%H-%M-%S")
+LOG_FILE = os.path.join(LOGS_DIR, f"{startup_time}_Log.txt")
+
+
+def log(msg):
+    # Generate timestamp string
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    full_msg = f"[{timestamp}] {msg}"
+
+    # Print to console and append to log file, flushing immediately
+    print(full_msg, flush=True)
+    with open(LOG_FILE, "a", encoding="utf-8") as f:
+        f.write(full_msg + "\n")
+        f.flush()
+        os.fsync(f.fileno())
+
+
+REQUIRED_PACKAGES = {
+    "cv2": "opencv-python",
+    "numpy": "numpy",
+    "keyboard": "keyboard",
+    "mss": "mss"
+}
+
+# Print current Python version into the log
+log(f"Python version: {sys.version}")
+
+# Check and install missing required libraries automatically
+for module, package in REQUIRED_PACKAGES.items():
+    if importlib.util.find_spec(module) is None:
+        log(f"Installing missing package: {package}...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+
 import time
 import shutil
 import threading
@@ -8,24 +50,14 @@ import numpy as np
 import keyboard
 import json
 import tkinter as tk
-from tkinter import filedialog, ttk
-from mss import mss
-from datetime import datetime
-import sys
+from tkinter import filedialog, ttk, messagebox
+from mss import MSS
 import signal
 
-# Determine script directory and load config
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+# Load config
 CONFIG_PATH = os.path.join(SCRIPT_DIR, "config.txt")
-
 with open(CONFIG_PATH, "r") as f:
     config = json.load(f)
-
-# Setup log directory and log file name at the top
-LOGS_DIR = os.path.join(SCRIPT_DIR, "Logs")
-os.makedirs(LOGS_DIR, exist_ok=True)
-startup_time = datetime.now().strftime("%Y-%m-%d--%H-%M-%S")
-LOG_FILE = os.path.join(LOGS_DIR, f"{startup_time}_Log.txt")
 
 # Global variables loaded from config
 SRC_DIR = config["SRC_DIR"]
@@ -42,28 +74,18 @@ app_state = "IDLE"  # States: IDLE, SCANNING, SUCCESS
 blink_toggle = False
 
 
-def log(msg):
-    # Generate timestamp string
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    full_msg = f"[{timestamp}] {msg}"
-
-    # Print to console and append to log file
-    print(full_msg)
-    with open(LOG_FILE, "a", encoding="utf-8") as f:
-        f.write(full_msg + "\n")
-
-
 def stop_all(*args):
     global running
+    if not running:
+        return
+
     log("Terminating all tasks and closing...")
 
-    # Trigger events to unblock loops
     running = False
     trigger_correlation.set()
 
-    # Destroy UI and kill process completely
-    root.destroy()
-    sys.exit(0)
+    # Forcefully and safely kill the entire process and all threads
+    os._exit(0)
 
 
 def backup_task():
@@ -94,7 +116,8 @@ def backup_task():
 
 def image_task():
     global app_state
-    sct = mss()
+    # Use MSS() instead of mss() to fix the deprecation warning
+    sct = MSS()
 
     while running:
         if not trigger_correlation.is_set():
@@ -104,9 +127,17 @@ def image_task():
         # Load image dynamically inside the loop to apply changes immediately
         log("New backup detected. Starting correlation scan...")
         app_state = "SCANNING"
+
+        # Check if file exists to prevent OpenCV errors
+        if not os.path.exists(IMG_PATH):
+            log(f"Image not found at: {IMG_PATH}")
+            app_state = "FAILED"
+            trigger_correlation.clear()
+            continue
+
         template = cv2.imread(IMG_PATH, cv2.IMREAD_GRAYSCALE)
 
-        while trigger_correlation.is_set() and running:
+        if trigger_correlation.is_set() and running:
             screen = np.array(sct.grab(MONITOR_ROI))
             gray = cv2.cvtColor(screen, cv2.COLOR_BGRA2GRAY)
 
@@ -121,26 +152,37 @@ def image_task():
                 sct.shot(mon=2, output=screenshot_path)
                 log(f"Threshold reached! Screenshot saved: {screenshot_path}")
 
-                # Turn diode green and wait for next trigger
                 app_state = "SUCCESS"
-                trigger_correlation.clear()
+            else:
+                log("Image not found on screen. Correlation below threshold.")
+                # Turn diode red for failure
+                app_state = "FAILED"
 
-            time.sleep(1)
+            # Clear trigger immediately after one scan
+            trigger_correlation.clear()
 
 
 def apply_config():
     global SRC_DIR, DST_DIR, IMG_PATH, MONITOR_ROI
 
+    # Check if the specified image file exists on disk
+    temp_img_path = os.path.join(SCRIPT_DIR, img_name_var.get())
+    if not os.path.exists(temp_img_path):
+        log(f"Validation Error: Image not found at {temp_img_path}")
+        messagebox.showerror("Error", f"Image file does not exist:\n{temp_img_path}")
+        return False
+
     # Apply new GUI values to global memory variables
     SRC_DIR = src_dir_var.get()
     DST_DIR = os.path.join(SCRIPT_DIR, backup_folder_var.get())
-    IMG_PATH = os.path.join(SCRIPT_DIR, img_name_var.get())
+    IMG_PATH = temp_img_path
     MONITOR_ROI = {
         "top": int(roi_top_var.get()),
         "left": int(roi_left_var.get()),
         "width": int(roi_width_var.get()),
         "height": int(roi_height_var.get()),
     }
+    return True
 
 
 def apply_btn_click():
@@ -151,6 +193,11 @@ def apply_btn_click():
 
 def save_config():
     log("Button clicked: Apply and save configuration")
+
+    # Stop saving if validation fails
+    if not apply_config():
+        log("Configuration not saved due to validation error.")
+        return
 
     # Create dictionary from current UI values
     new_config = {
@@ -169,12 +216,14 @@ def save_config():
     with open(CONFIG_PATH, "w") as f:
         json.dump(new_config, f, indent=4)
 
-    apply_config()
     log("Configuration saved to file and applied in memory.")
 
 
 def update_gui():
     global blink_toggle
+
+    if not running:
+        return
 
     lbl_last_backup_val.config(text=last_backup_time_str)
 
@@ -182,6 +231,8 @@ def update_gui():
         canvas_diode.itemconfig(diode_circle, fill="gray")
     elif app_state == "SUCCESS":
         canvas_diode.itemconfig(diode_circle, fill="green")
+    elif app_state == "FAILED":
+        canvas_diode.itemconfig(diode_circle, fill="red")
     elif app_state == "SCANNING":
         color = "orange" if blink_toggle else "yellow"
         canvas_diode.itemconfig(diode_circle, fill=color)
@@ -245,6 +296,19 @@ canvas_diode = tk.Canvas(dash_container, width=30, height=30)
 canvas_diode.grid(row=1, column=1, sticky="w", pady=10)
 diode_circle = canvas_diode.create_oval(5, 5, 25, 25, fill="gray")
 
+# Legend for diode colors
+legend_frame = tk.Frame(dash_container)
+legend_frame.grid(row=2, column=0, columnspan=2, pady=20, sticky="w")
+tk.Label(legend_frame, text="Color Legend:", font=("Arial", 10, "bold")).pack(
+    anchor="w"
+)
+tk.Label(legend_frame, text="Gray - Waiting for new save", fg="gray").pack(anchor="w")
+tk.Label(legend_frame, text="Yellow/Orange - Scanning", fg="orange").pack(anchor="w")
+tk.Label(legend_frame, text="Green - Success (screenshot taken)", fg="green").pack(
+    anchor="w"
+)
+tk.Label(legend_frame, text="Red - Image not found", fg="red").pack(anchor="w")
+
 # --- TAB 2: SETTINGS ---
 
 # Setup source directory input and browse button
@@ -296,9 +360,19 @@ tk.Entry(tab_settings, textvariable=roi_height_var, width=10).grid(
     row=4, column=3, sticky="w"
 )
 
+# ROI Explanation text
+roi_info = (
+    "ROI (Region of Interest) is the screen area where the script searches for the image.\n"
+    "Top/Left are the coordinates from the top-left corner (0,0).\n"
+    "Width/Height are the dimensions of the scanned area in pixels."
+)
+tk.Label(tab_settings, text=roi_info, justify="left", fg="gray").grid(
+    row=5, column=0, columnspan=5, pady=10
+)
+
 # Setup action buttons at the bottom
 button_frame = tk.Frame(tab_settings)
-button_frame.grid(row=5, column=0, columnspan=5, pady=20)
+button_frame.grid(row=6, column=0, columnspan=5, pady=20)
 
 # Apply button (memory only) and Save button (memory + file)
 tk.Button(button_frame, text="Apply", command=apply_btn_click, bg="lightgreen").pack(
