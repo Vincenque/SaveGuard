@@ -6,7 +6,7 @@ import importlib.util
 from datetime import datetime
 
 # Setup log directory and log file name at the very beginning
-if getattr(sys, 'frozen', False):
+if getattr(sys, "frozen", False):
     # Running as compiled executable
     SCRIPT_DIR = os.path.dirname(sys.executable)
 else:
@@ -36,7 +36,7 @@ REQUIRED_PACKAGES = {
     "cv2": "opencv-python",
     "numpy": "numpy",
     "keyboard": "keyboard",
-    "mss": "mss"
+    "mss": "mss",
 }
 
 # Print current Python version into the log
@@ -159,13 +159,13 @@ def image_task():
                 log(f"Threshold reached! Screenshot saved: {screenshot_path}")
 
                 app_state = "SUCCESS"
+                # Clear trigger only on success, otherwise keep scanning
+                trigger_correlation.clear()
             else:
-                log("Image not found on screen. Correlation below threshold.")
-                # Turn diode red for failure
-                app_state = "FAILED"
+                # Do not stop or set FAILED state, just log and wait for the next iteration
+                log(f"Image not found on screen yet. Retrying...")
 
-            # Clear trigger immediately after one scan
-            trigger_correlation.clear()
+            time.sleep(1)
 
 
 def apply_config():
