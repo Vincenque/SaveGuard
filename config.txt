@@ -7,5 +7,7 @@
         "left": 0,
         "width": 1920,
         "height": 1080
-    }
+    },
+    "SCREENSHOT_MODE": "Auto",
+    "SCREENSHOT_HOTKEY": "]"
 }

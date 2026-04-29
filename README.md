@@ -14,9 +14,11 @@ The application runs in the background and monitors a specified game save folder
 
 1. **Monitoring:** When a new file (or a file with a new modification date) appears in the source folder, the app immediately copies it to a secure location with a unique timestamp.
 
-2. **Context Verification:** After the backup is made, the app searches the screen for a specific, characteristic image snippet (e.g., a quest log header or a map icon).
+2. **Context Verification / Waiting:** After the backup is made, the app enters a screenshot waiting state based on your chosen mode:
+    * **Automatic Mode:** The app continuously searches the screen for a specific, characteristic image snippet (e.g., a quest log header).
+    * **Hotkey Mode:** The app simply waits for you to press a designated keyboard shortcut.
 
-3. **Visual Index:** If the unique snippet is detected (e.g., you open the quest log right after saving), the app takes a full screenshot. As a result, right next to your save file in the backup folder, you get an image showing exactly what you were doing in the game at that time.
+3. **Visual Index:** If the unique snippet is detected (Auto mode) or you press the hotkey (Hotkey mode), the app takes a full screenshot. As a result, right next to your save file in the backup folder, you get an image showing exactly what you were doing in the game at that time.
 
 
 
@@ -81,6 +83,8 @@ The application features a user-friendly graphical interface divided into tabs:
 * **Image Name:** The name of a small `.png` file (template) that the app should look for on the screen.
 
 * **ROI (Region of Interest):** Allows you to limit the screen scanning to a specific area (e.g., top-left corner), which drastically increases performance and accuracy.
+* **Mode:** Choose between "Automatic" (scans for the image) or "Hotkey" (waits for a manual key press).
+* **Current Hotkey:** Displays the currently bound key for manual screenshots. Click "Bind new hotkey" to change it.
 
 
 
