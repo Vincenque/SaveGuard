@@ -6,3 +6,5 @@ dist
 *.spec
 *.7z
 *.exe
+*.zip
+*.lnk

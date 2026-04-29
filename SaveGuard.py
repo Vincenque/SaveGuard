@@ -71,8 +71,14 @@ DST_DIR = os.path.join(SCRIPT_DIR, config["BACKUP_FOLDER"])
 IMG_PATH = os.path.join(SCRIPT_DIR, config["IMG_NAME"])
 MONITOR_ROI = config["MONITOR_ROI"]
 
+# Load new screenshot mode and hotkey parameters with safe defaults
+SCREENSHOT_MODE = config.get("SCREENSHOT_MODE", "Auto")
+SCREENSHOT_HOTKEY = config.get("SCREENSHOT_HOTKEY", "]")
+
 running = True
 trigger_correlation = threading.Event()
+trigger_manual_screenshot = threading.Event()
+current_hotkey_hook = None
 
 # Global variables for GUI state updates
 last_backup_time_str = "None"
@@ -130,50 +136,74 @@ def image_task():
             trigger_correlation.wait(timeout=1.0)
             continue
 
-        # Load image dynamically inside the loop to apply changes immediately
-        log("New backup detected. Starting correlation scan...")
+        # Start scanning state and reset manual screenshot trigger
+        log(f"New backup detected. Mode: {SCREENSHOT_MODE}. Starting scan/wait...")
         app_state = "SCANNING"
+        trigger_manual_screenshot.clear()
 
-        # Check if file exists to prevent OpenCV errors
-        if not os.path.exists(IMG_PATH):
-            log(f"Image not found at: {IMG_PATH}")
-            app_state = "FAILED"
-            trigger_correlation.clear()
-            continue
-
-        template = cv2.imread(IMG_PATH, cv2.IMREAD_GRAYSCALE)
-
-        if trigger_correlation.is_set() and running:
-            screen = np.array(sct.grab(MONITOR_ROI))
-            gray = cv2.cvtColor(screen, cv2.COLOR_BGRA2GRAY)
-
-            res = cv2.matchTemplate(gray, template, cv2.TM_CCOEFF_NORMED)
-            _, max_val, _, _ = cv2.minMaxLoc(res)
-            log(f"Current image correlation: {max_val * 100:.2f}%")
-
-            if max_val > 0.9:
-                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-                screenshot_path = os.path.join(DST_DIR, f"{ts}_Screenshot.png")
-
-                sct.shot(mon=2, output=screenshot_path)
-                log(f"Threshold reached! Screenshot saved: {screenshot_path}")
-
-                app_state = "SUCCESS"
-                # Clear trigger only on success, otherwise keep scanning
+        template = None
+        if SCREENSHOT_MODE == "Auto":
+            # In automatic mode, we need the template image to proceed
+            if not os.path.exists(IMG_PATH):
+                log(f"Image not found at: {IMG_PATH}")
+                app_state = "FAILED"
                 trigger_correlation.clear()
-            else:
-                # Do not stop or set FAILED state, just log and wait for the next iteration
-                log(f"Image not found on screen yet. Retrying...")
+                continue
+            template = cv2.imread(IMG_PATH, cv2.IMREAD_GRAYSCALE)
 
-            time.sleep(1)
+        while trigger_correlation.is_set() and running:
+            if SCREENSHOT_MODE == "Auto":
+                screen = np.array(sct.grab(MONITOR_ROI))
+                gray = cv2.cvtColor(screen, cv2.COLOR_BGRA2GRAY)
+
+                # Process correlation match
+                res = cv2.matchTemplate(gray, template, cv2.TM_CCOEFF_NORMED)
+                _, max_val, _, _ = cv2.minMaxLoc(res)
+                log(f"Current image correlation: {max_val * 100:.2f}%")
+
+                if max_val > 0.9:
+                    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    screenshot_path = os.path.join(DST_DIR, f"{ts}_Screenshot.png")
+
+                    sct.shot(mon=2, output=screenshot_path)
+                    log(f"Threshold reached! Screenshot saved: {screenshot_path}")
+
+                    app_state = "SUCCESS"
+                    # Clear trigger only on success, otherwise keep scanning
+                    trigger_correlation.clear()
+                else:
+                    log(f"Image not found on screen yet. Retrying...")
+
+                time.sleep(1)
+
+            elif SCREENSHOT_MODE == "Hotkey":
+                # Wait for the manual hotkey event to be triggered by the user
+                if trigger_manual_screenshot.is_set():
+                    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    screenshot_path = os.path.join(DST_DIR, f"{ts}_Screenshot.png")
+
+                    sct.shot(mon=2, output=screenshot_path)
+                    log(f"Manual hotkey pressed! Screenshot saved: {screenshot_path}")
+
+                    app_state = "SUCCESS"
+                    trigger_manual_screenshot.clear()
+                    trigger_correlation.clear()
+                else:
+                    time.sleep(0.1)
+
+
+def manual_screenshot_callback():
+    # Trigger event if we are in hotkey mode and currently waiting for screenshot
+    if app_state == "SCANNING" and SCREENSHOT_MODE == "Hotkey":
+        trigger_manual_screenshot.set()
 
 
 def apply_config():
-    global SRC_DIR, DST_DIR, IMG_PATH, MONITOR_ROI
+    global SRC_DIR, DST_DIR, IMG_PATH, MONITOR_ROI, SCREENSHOT_MODE, SCREENSHOT_HOTKEY, current_hotkey_hook
 
-    # Check if the specified image file exists on disk
+    # Check if the specified image file exists on disk (Only needed in Auto mode)
     temp_img_path = os.path.join(SCRIPT_DIR, img_name_var.get())
-    if not os.path.exists(temp_img_path):
+    if mode_var.get() == "Auto" and not os.path.exists(temp_img_path):
         log(f"Validation Error: Image not found at {temp_img_path}")
         messagebox.showerror("Error", f"Image file does not exist:\n{temp_img_path}")
         return False
@@ -188,6 +218,19 @@ def apply_config():
         "width": int(roi_width_var.get()),
         "height": int(roi_height_var.get()),
     }
+    SCREENSHOT_MODE = mode_var.get()
+
+    # Apply hotkey logic and rebind if user changed the key
+    new_hotkey = hotkey_var.get()
+    if new_hotkey != SCREENSHOT_HOTKEY or current_hotkey_hook is None:
+        if current_hotkey_hook:
+            keyboard.remove_hotkey(current_hotkey_hook)
+
+        SCREENSHOT_HOTKEY = new_hotkey
+        current_hotkey_hook = keyboard.add_hotkey(
+            SCREENSHOT_HOTKEY, manual_screenshot_callback
+        )
+
     return True
 
 
@@ -205,7 +248,7 @@ def save_config():
         log("Configuration not saved due to validation error.")
         return
 
-    # Create dictionary from current UI values
+    # Create dictionary from current UI values including new mode elements
     new_config = {
         "SRC_DIR": src_dir_var.get(),
         "BACKUP_FOLDER": backup_folder_var.get(),
@@ -216,6 +259,8 @@ def save_config():
             "width": int(roi_width_var.get()),
             "height": int(roi_height_var.get()),
         },
+        "SCREENSHOT_MODE": mode_var.get(),
+        "SCREENSHOT_HOTKEY": hotkey_var.get(),
     }
 
     # Save to file and apply to memory
@@ -256,6 +301,27 @@ def browse_src_dir():
         src_dir_var.set(selected)
 
 
+def update_hotkey_gui(key):
+    # Update text variable and reset button state
+    hotkey_var.set(key)
+    btn_rebind.config(text="Bind new hotkey", state="normal")
+
+
+def listen_for_hotkey():
+    # Change button state to indicate listening
+    btn_rebind.config(text="Press any key...", state="disabled")
+
+    # Force focus away from any text entry to prevent typing the hotkey into it
+    root.focus()
+
+    def wait_key():
+        key = keyboard.read_key()
+        root.after(0, update_hotkey_gui, key)
+
+    # Run blocking key read in background thread to avoid freezing GUI
+    threading.Thread(target=wait_key, daemon=True).start()
+
+
 # Initialize GUI main window
 root = tk.Tk()
 root.title("SaveGuard")
@@ -263,6 +329,14 @@ root.title("SaveGuard")
 # Set up notebook for tabs
 notebook = ttk.Notebook(root)
 notebook.pack(fill="both", expand=True, padx=10, pady=10)
+
+
+# Remove focus from input fields whenever the user switches tabs
+def clear_focus(event):
+    root.focus()
+
+
+notebook.bind("<<NotebookTabChanged>>", clear_focus)
 
 # Create two frames for our tabs
 tab_dashboard = ttk.Frame(notebook)
@@ -280,6 +354,8 @@ roi_top_var = tk.StringVar(root, value=str(config["MONITOR_ROI"]["top"]))
 roi_left_var = tk.StringVar(root, value=str(config["MONITOR_ROI"]["left"]))
 roi_width_var = tk.StringVar(root, value=str(config["MONITOR_ROI"]["width"]))
 roi_height_var = tk.StringVar(root, value=str(config["MONITOR_ROI"]["height"]))
+mode_var = tk.StringVar(root, value=config.get("SCREENSHOT_MODE", "Auto"))
+hotkey_var = tk.StringVar(root, value=config.get("SCREENSHOT_HOTKEY", "]"))
 
 # --- TAB 1: DASHBOARD ---
 
@@ -376,9 +452,33 @@ tk.Label(tab_settings, text=roi_info, justify="left", fg="gray").grid(
     row=5, column=0, columnspan=5, pady=10
 )
 
+# Screenshot Mode
+tk.Label(tab_settings, text="Mode:").grid(row=6, column=0, sticky="e", padx=5, pady=5)
+mode_frame = tk.Frame(tab_settings)
+mode_frame.grid(row=6, column=1, columnspan=3, sticky="w")
+tk.Radiobutton(mode_frame, text="Automatic", variable=mode_var, value="Auto").pack(
+    side="left"
+)
+tk.Radiobutton(mode_frame, text="Hotkey", variable=mode_var, value="Hotkey").pack(
+    side="left", padx=10
+)
+
+# Hotkey Rebinding
+tk.Label(tab_settings, text="Current Hotkey:").grid(
+    row=7, column=0, sticky="e", padx=5, pady=5
+)
+tk.Label(tab_settings, textvariable=hotkey_var, font=("Arial", 10, "bold")).grid(
+    row=7, column=1, sticky="w"
+)
+
+btn_rebind = tk.Button(
+    tab_settings, text="Bind new hotkey", command=listen_for_hotkey, width=16
+)
+btn_rebind.grid(row=7, column=2, sticky="w")
+
 # Setup action buttons at the bottom
 button_frame = tk.Frame(tab_settings)
-button_frame.grid(row=6, column=0, columnspan=5, pady=20)
+button_frame.grid(row=8, column=0, columnspan=5, pady=20)
 
 # Apply button (memory only) and Save button (memory + file)
 tk.Button(button_frame, text="Apply", command=apply_btn_click, bg="lightgreen").pack(
@@ -393,6 +493,9 @@ tk.Button(
 
 # Bind F10 hotkey
 keyboard.add_hotkey("f10", stop_all)
+
+# Initial bind for manual screenshot hotkey
+current_hotkey_hook = keyboard.add_hotkey(SCREENSHOT_HOTKEY, manual_screenshot_callback)
 
 # Bind GUI close button and terminal interrupt
 root.protocol("WM_DELETE_WINDOW", stop_all)
