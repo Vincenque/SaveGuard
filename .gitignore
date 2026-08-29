@@ -8,3 +8,6 @@ dist
 *.exe
 *.zip
 *.lnk
+SaveGuard.code-workspace
+Backups*
+*.png
