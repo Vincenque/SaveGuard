@@ -382,6 +382,21 @@ mode_var = tk.StringVar(root, value=config.get("SCREENSHOT_MODE", "Auto"))
 hotkey_var = tk.StringVar(root, value=config.get("SCREENSHOT_HOTKEY", "]"))
 exit_hotkey_var = tk.StringVar(root, value=config.get("EXIT_HOTKEY", "f10"))
 
+# Auto-fallback to Hotkey mode if the template image is missing on startup
+if mode_var.get() == "Auto" and not os.path.exists(IMG_PATH):
+    log(f"Startup Warning: Image not found at {IMG_PATH}. Switching to Hotkey mode.")
+
+    # Hide the main window temporarily to center the messagebox (optional but looks cleaner)
+    root.withdraw()
+    messagebox.showwarning(
+        "Image Not Found",
+        f"The configured image file was not found:\n{IMG_PATH}\n\nSwitching to 'Hotkey' mode automatically.",
+    )
+    root.deiconify()  # Restore the main window
+
+    mode_var.set("Hotkey")
+    SCREENSHOT_MODE = "Hotkey"
+
 # --- TAB 1: DASHBOARD ---
 
 # Create a container frame that expands to center contents
