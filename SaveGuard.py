@@ -74,11 +74,13 @@ MONITOR_ROI = config["MONITOR_ROI"]
 # Load new screenshot mode and hotkey parameters with safe defaults
 SCREENSHOT_MODE = config.get("SCREENSHOT_MODE", "Auto")
 SCREENSHOT_HOTKEY = config.get("SCREENSHOT_HOTKEY", "]")
+EXIT_HOTKEY = config.get("EXIT_HOTKEY", "f10")
 
 running = True
 trigger_correlation = threading.Event()
 trigger_manual_screenshot = threading.Event()
 current_hotkey_hook = None
+current_exit_hook = None
 
 # Global variables for GUI state updates
 last_backup_time_str = "None"
@@ -200,6 +202,7 @@ def manual_screenshot_callback():
 
 def apply_config():
     global SRC_DIR, DST_DIR, IMG_PATH, MONITOR_ROI, SCREENSHOT_MODE, SCREENSHOT_HOTKEY, current_hotkey_hook
+    global EXIT_HOTKEY, current_exit_hook
 
     # Check if the specified image file exists on disk (Only needed in Auto mode)
     temp_img_path = os.path.join(SCRIPT_DIR, img_name_var.get())
@@ -231,6 +234,15 @@ def apply_config():
             SCREENSHOT_HOTKEY, manual_screenshot_callback
         )
 
+    # Apply exit hotkey logic
+    new_exit_hotkey = exit_hotkey_var.get()
+    if new_exit_hotkey != EXIT_HOTKEY or current_exit_hook is None:
+        if current_exit_hook:
+            keyboard.remove_hotkey(current_exit_hook)
+
+        EXIT_HOTKEY = new_exit_hotkey
+        current_exit_hook = keyboard.add_hotkey(EXIT_HOTKEY, stop_all)
+
     return True
 
 
@@ -261,6 +273,7 @@ def save_config():
         },
         "SCREENSHOT_MODE": mode_var.get(),
         "SCREENSHOT_HOTKEY": hotkey_var.get(),
+        "EXIT_HOTKEY": exit_hotkey_var.get(),
     }
 
     # Save to file and apply to memory
@@ -301,24 +314,35 @@ def browse_src_dir():
         src_dir_var.set(selected)
 
 
-def update_hotkey_gui(key):
-    # Update text variable and reset button state
+def update_screenshot_hotkey_gui(key):
     hotkey_var.set(key)
     btn_rebind.config(text="Bind new hotkey", state="normal")
 
 
-def listen_for_hotkey():
-    # Change button state to indicate listening
+def listen_for_screenshot_hotkey():
     btn_rebind.config(text="Press any key...", state="disabled")
-
-    # Force focus away from any text entry to prevent typing the hotkey into it
     root.focus()
 
     def wait_key():
         key = keyboard.read_key()
-        root.after(0, update_hotkey_gui, key)
+        root.after(0, update_screenshot_hotkey_gui, key)
 
-    # Run blocking key read in background thread to avoid freezing GUI
+    threading.Thread(target=wait_key, daemon=True).start()
+
+
+def update_exit_hotkey_gui(key):
+    exit_hotkey_var.set(key)
+    btn_rebind_exit.config(text="Bind new hotkey", state="normal")
+
+
+def listen_for_exit_hotkey():
+    btn_rebind_exit.config(text="Press any key...", state="disabled")
+    root.focus()
+
+    def wait_key():
+        key = keyboard.read_key()
+        root.after(0, update_exit_hotkey_gui, key)
+
     threading.Thread(target=wait_key, daemon=True).start()
 
 
@@ -356,6 +380,7 @@ roi_width_var = tk.StringVar(root, value=str(config["MONITOR_ROI"]["width"]))
 roi_height_var = tk.StringVar(root, value=str(config["MONITOR_ROI"]["height"]))
 mode_var = tk.StringVar(root, value=config.get("SCREENSHOT_MODE", "Auto"))
 hotkey_var = tk.StringVar(root, value=config.get("SCREENSHOT_HOTKEY", "]"))
+exit_hotkey_var = tk.StringVar(root, value=config.get("EXIT_HOTKEY", "f10"))
 
 # --- TAB 1: DASHBOARD ---
 
@@ -463,22 +488,33 @@ tk.Radiobutton(mode_frame, text="Hotkey", variable=mode_var, value="Hotkey").pac
     side="left", padx=10
 )
 
-# Hotkey Rebinding
-tk.Label(tab_settings, text="Current Hotkey:").grid(
+# Screenshot Hotkey Rebinding
+tk.Label(tab_settings, text="Screenshot Hotkey:").grid(
     row=7, column=0, sticky="e", padx=5, pady=5
 )
 tk.Label(tab_settings, textvariable=hotkey_var, font=("Arial", 10, "bold")).grid(
     row=7, column=1, sticky="w"
 )
-
 btn_rebind = tk.Button(
-    tab_settings, text="Bind new hotkey", command=listen_for_hotkey, width=16
+    tab_settings, text="Bind new hotkey", command=listen_for_screenshot_hotkey, width=16
 )
 btn_rebind.grid(row=7, column=2, sticky="w")
 
+# Exit App Hotkey Rebinding
+tk.Label(tab_settings, text="Exit App Hotkey:").grid(
+    row=8, column=0, sticky="e", padx=5, pady=5
+)
+tk.Label(tab_settings, textvariable=exit_hotkey_var, font=("Arial", 10, "bold")).grid(
+    row=8, column=1, sticky="w"
+)
+btn_rebind_exit = tk.Button(
+    tab_settings, text="Bind new hotkey", command=listen_for_exit_hotkey, width=16
+)
+btn_rebind_exit.grid(row=8, column=2, sticky="w")
+
 # Setup action buttons at the bottom
 button_frame = tk.Frame(tab_settings)
-button_frame.grid(row=8, column=0, columnspan=5, pady=20)
+button_frame.grid(row=9, column=0, columnspan=5, pady=20)
 
 # Apply button (memory only) and Save button (memory + file)
 tk.Button(button_frame, text="Apply", command=apply_btn_click, bg="lightgreen").pack(
@@ -491,8 +527,8 @@ tk.Button(
     bg="lightblue",
 ).pack(side="left", padx=10)
 
-# Bind F10 hotkey
-keyboard.add_hotkey("f10", stop_all)
+# Initial bind for exit hotkey
+current_exit_hook = keyboard.add_hotkey(EXIT_HOTKEY, stop_all)
 
 # Initial bind for manual screenshot hotkey
 current_hotkey_hook = keyboard.add_hotkey(SCREENSHOT_HOTKEY, manual_screenshot_callback)

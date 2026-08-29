@@ -9,5 +9,6 @@
         "height": 1080
     },
     "SCREENSHOT_MODE": "Auto",
-    "SCREENSHOT_HOTKEY": "]"
+    "SCREENSHOT_HOTKEY": "]",
+    "EXIT_HOTKEY": "f10"
 }
