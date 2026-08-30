@@ -207,9 +207,14 @@ def apply_config():
     # Check if the specified image file exists on disk (Only needed in Auto mode)
     temp_img_path = os.path.join(SCRIPT_DIR, img_name_var.get())
     if mode_var.get() == "Auto" and not os.path.exists(temp_img_path):
-        log(f"Validation Error: Image not found at {temp_img_path}")
-        messagebox.showerror("Error", f"Image file does not exist:\n{temp_img_path}")
-        return False
+        log(
+            f"Validation Error: Image not found at {temp_img_path}. Switching to Hotkey mode."
+        )
+        messagebox.showwarning(
+            "Image Not Found",
+            f"The configured image file was not found:\n{temp_img_path}\n\nSwitching to 'Hotkey' mode automatically.",
+        )
+        mode_var.set("Hotkey")
 
     # Apply new GUI values to global memory variables
     SRC_DIR = src_dir_var.get()
@@ -290,6 +295,11 @@ def update_gui():
         return
 
     lbl_last_backup_val.config(text=last_backup_time_str)
+
+    if SCREENSHOT_MODE == "Hotkey":
+        lbl_current_mode_val.config(text=f"Hotkey (Press '{SCREENSHOT_HOTKEY}')")
+    else:
+        lbl_current_mode_val.config(text="Automatic")
 
     if app_state == "IDLE":
         canvas_diode.itemconfig(diode_circle, fill="gray")
@@ -399,28 +409,37 @@ if mode_var.get() == "Auto" and not os.path.exists(IMG_PATH):
 
 # --- TAB 1: DASHBOARD ---
 
-# Create a container frame that expands to center contents
+# Create a container frame aligned to the top-left
 dash_container = tk.Frame(tab_dashboard)
-dash_container.pack(expand=True)
+dash_container.pack(anchor="nw", padx=20, pady=20)
 
 # Display last backup time
 tk.Label(dash_container, text="Last Backup Time:", font=("Arial", 12)).grid(
-    row=0, column=0, sticky="e", pady=10, padx=10
+    row=0, column=0, sticky="w", pady=10, padx=10
 )
 lbl_last_backup_val = tk.Label(dash_container, text="None", font=("Arial", 12, "bold"))
 lbl_last_backup_val.grid(row=0, column=1, sticky="w", pady=10)
 
 # Display screenshot status with diode
 tk.Label(dash_container, text="Screenshot Status:", font=("Arial", 12)).grid(
-    row=1, column=0, sticky="e", pady=10, padx=10
+    row=1, column=0, sticky="w", pady=10, padx=10
 )
 canvas_diode = tk.Canvas(dash_container, width=30, height=30)
 canvas_diode.grid(row=1, column=1, sticky="w", pady=10)
 diode_circle = canvas_diode.create_oval(5, 5, 25, 25, fill="gray")
 
+# Display current mode and hotkey
+tk.Label(dash_container, text="Current Mode:", font=("Arial", 12)).grid(
+    row=2, column=0, sticky="w", pady=10, padx=10
+)
+lbl_current_mode_val = tk.Label(
+    dash_container, text="Loading...", font=("Arial", 12, "bold")
+)
+lbl_current_mode_val.grid(row=2, column=1, sticky="w", pady=10)
+
 # Legend for diode colors
 legend_frame = tk.Frame(dash_container)
-legend_frame.grid(row=2, column=0, columnspan=2, pady=20, sticky="w")
+legend_frame.grid(row=3, column=0, columnspan=2, pady=20, padx=10, sticky="w")
 tk.Label(legend_frame, text="Color Legend:", font=("Arial", 10, "bold")).pack(
     anchor="w"
 )
