@@ -17,7 +17,7 @@ set FINAL_NAME=%BASE_NAME%_%FORMATTED_VERSION%
 echo [%DATE% %TIME%] Detected version: %RAW_VERSION%. Output filename will be: %FINAL_NAME%.exe
 
 echo [%DATE% %TIME%] Running PyInstaller...
-python -m PyInstaller --onefile --noconsole --name %FINAL_NAME% %SCRIPT_NAME%
+py -m PyInstaller --onefile --noconsole --name %FINAL_NAME% %SCRIPT_NAME%
 
 echo [%DATE% %TIME%] Moving executable to current directory...
 move dist\%FINAL_NAME%.exe .
