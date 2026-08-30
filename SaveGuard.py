@@ -430,14 +430,15 @@ def update_gui():
     else:
         lbl_current_mode_val.config(text="Automatic")
 
+    # Użycie łagodniejszych kolorów pasujących do ciemnego motywu
     if app_state == "IDLE":
-        canvas_diode.itemconfig(diode_circle, fill="gray")
+        canvas_diode.itemconfig(diode_circle, fill="#808080")
     elif app_state == "SUCCESS":
-        canvas_diode.itemconfig(diode_circle, fill="green")
+        canvas_diode.itemconfig(diode_circle, fill="#4caf50")
     elif app_state == "FAILED":
-        canvas_diode.itemconfig(diode_circle, fill="red")
+        canvas_diode.itemconfig(diode_circle, fill="#f44336")
     elif app_state == "SCANNING":
-        color = "orange" if blink_toggle else "yellow"
+        color = "#ffb74d" if blink_toggle else "#ffeb3b"
         canvas_diode.itemconfig(diode_circle, fill=color)
         blink_toggle = not blink_toggle
 
@@ -488,6 +489,68 @@ def listen_for_exit_hotkey():
 # Initialize GUI main window
 root = tk.Tk()
 root.title("SaveGuard")
+
+# Force dark title bar on Windows 10/11 using dwmapi
+try:
+    import ctypes
+
+    root.update()  # Ensure window is created before getting its handle
+    hwnd = ctypes.windll.user32.GetParent(root.winfo_id())
+    value = ctypes.c_int(2)
+    # 20 is DWMWA_USE_IMMERSIVE_DARK_MODE for Windows 11
+    ctypes.windll.dwmapi.DwmSetWindowAttribute(
+        hwnd, 20, ctypes.byref(value), ctypes.sizeof(value)
+    )
+    # 19 is the equivalent attribute for older versions of Windows 10
+    ctypes.windll.dwmapi.DwmSetWindowAttribute(
+        hwnd, 19, ctypes.byref(value), ctypes.sizeof(value)
+    )
+except Exception:
+    pass  # Fail silently on unsupported OS versions
+
+# --- DARK THEME CONFIGURATION ---
+BG_COLOR = "#2b2b2b"
+FG_COLOR = "#e0e0e0"  # Delikatna złamana biel, łagodniejsza dla oczu
+INPUT_BG = "#3c3f41"
+ACCENT_COLOR = "#555555"
+
+root.configure(bg=BG_COLOR)
+# Zmiana domyślnej palety dla wszystkich standardowych widgetów
+root.tk_setPalette(
+    background=BG_COLOR,
+    foreground=FG_COLOR,
+    activeBackground=INPUT_BG,
+    activeForeground=FG_COLOR,
+    selectColor=INPUT_BG,
+)
+
+# Wymuszenie kolorów dla pól tekstowych i przycisków
+root.option_add("*Entry.Background", INPUT_BG)
+root.option_add("*Entry.Foreground", FG_COLOR)
+root.option_add("*Entry.insertBackground", FG_COLOR)  # Biały kursor tekstu
+root.option_add("*Button.Background", INPUT_BG)
+root.option_add("*Button.Foreground", FG_COLOR)
+root.option_add("*Button.activeBackground", ACCENT_COLOR)
+root.option_add("*Button.activeForeground", FG_COLOR)
+
+# Stylowanie widgetów ttk (Zakładki)
+style = ttk.Style()
+style.theme_use("clam")  # Motyw pozwalający na nadpisywanie tła zakładek
+style.configure("TNotebook", background=BG_COLOR, borderwidth=0)
+style.configure(
+    "TNotebook.Tab",
+    background=INPUT_BG,
+    foreground=FG_COLOR,
+    padding=[15, 5],
+    borderwidth=0,
+)
+style.map(
+    "TNotebook.Tab",
+    background=[("selected", ACCENT_COLOR)],
+    foreground=[("selected", FG_COLOR)],
+)
+style.configure("TFrame", background=BG_COLOR)
+# --------------------------------
 
 # Set up notebook for tabs
 notebook = ttk.Notebook(root)
@@ -553,9 +616,11 @@ lbl_last_backup_val.grid(row=0, column=1, sticky="w", pady=10)
 tk.Label(dash_container, text="Screenshot Status:", font=("Arial", 12)).grid(
     row=1, column=0, sticky="w", pady=10, padx=10
 )
-canvas_diode = tk.Canvas(dash_container, width=30, height=30)
+canvas_diode = tk.Canvas(
+    dash_container, width=30, height=30, bg="#2b2b2b", highlightthickness=0
+)
 canvas_diode.grid(row=1, column=1, sticky="w", pady=10)
-diode_circle = canvas_diode.create_oval(5, 5, 25, 25, fill="gray")
+diode_circle = canvas_diode.create_oval(5, 5, 25, 25, fill="gray", outline="#555555")
 
 # Display current mode and hotkey
 tk.Label(dash_container, text="Current Mode:", font=("Arial", 12)).grid(
@@ -566,18 +631,20 @@ lbl_current_mode_val = tk.Label(
 )
 lbl_current_mode_val.grid(row=2, column=1, sticky="w", pady=10)
 
-# Legend for diode colors
+# Legend for diode colors (dostosowane do ciemnego motywu)
 legend_frame = tk.Frame(dash_container)
 legend_frame.grid(row=3, column=0, columnspan=2, pady=20, padx=10, sticky="w")
 tk.Label(legend_frame, text="Color Legend:", font=("Arial", 10, "bold")).pack(
     anchor="w"
 )
-tk.Label(legend_frame, text="Gray - Waiting for new save", fg="gray").pack(anchor="w")
-tk.Label(legend_frame, text="Yellow/Orange - Scanning", fg="orange").pack(anchor="w")
-tk.Label(legend_frame, text="Green - Success (screenshot taken)", fg="green").pack(
+tk.Label(legend_frame, text="Gray - Waiting for new save", fg="#aaaaaa").pack(
     anchor="w"
 )
-tk.Label(legend_frame, text="Red - Image not found", fg="red").pack(anchor="w")
+tk.Label(legend_frame, text="Yellow/Orange - Scanning", fg="#ffb74d").pack(anchor="w")
+tk.Label(legend_frame, text="Green - Success (screenshot taken)", fg="#81c784").pack(
+    anchor="w"
+)
+tk.Label(legend_frame, text="Red - Image not found", fg="#e57373").pack(anchor="w")
 
 # --- TAB 2: SETTINGS ---
 
@@ -636,7 +703,7 @@ roi_info = (
     "Top/Left are the coordinates from the top-left corner (0,0).\n"
     "Width/Height are the dimensions of the scanned area in pixels."
 )
-tk.Label(tab_settings, text=roi_info, justify="left", fg="gray").grid(
+tk.Label(tab_settings, text=roi_info, justify="left", fg="#aaaaaa").grid(
     row=5, column=0, columnspan=5, pady=10
 )
 
@@ -693,13 +760,22 @@ tk.Button(top_btn_frame, text="Export Config As...", command=save_custom_config)
 bot_btn_frame = tk.Frame(button_frame)
 bot_btn_frame.pack(side="top", pady=5)
 tk.Button(
-    bot_btn_frame, text="Apply (Memory only)", command=apply_btn_click, bg="lightgreen"
+    bot_btn_frame,
+    text="Apply (Memory only)",
+    command=apply_btn_click,
+    bg="#2e7d32",
+    fg="white",
+    activebackground="#4caf50",
+    activeforeground="white",
 ).pack(side="left", padx=10)
 tk.Button(
     bot_btn_frame,
     text="Apply and save as default",
     command=save_config,
-    bg="lightblue",
+    bg="#1565c0",
+    fg="white",
+    activebackground="#1e88e5",
+    activeforeground="white",
 ).pack(side="left", padx=10)
 
 # Initial bind for exit hotkey
