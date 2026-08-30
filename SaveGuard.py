@@ -82,10 +82,11 @@ trigger_manual_screenshot = threading.Event()
 current_hotkey_hook = None
 current_exit_hook = None
 
-# Global variables for GUI state updates
+# Global variables for GUI state updates and backup tracking
 last_backup_time_str = "None"
 app_state = "IDLE"  # States: IDLE, SCANNING, SUCCESS
 blink_toggle = False
+latest_backup_target_dir = DST_DIR
 
 
 def stop_all(*args):
@@ -103,30 +104,40 @@ def stop_all(*args):
 
 
 def backup_task():
-    global last_backup_time_str
+    global last_backup_time_str, latest_backup_target_dir
 
     while running:
         try:
-            # Ensure destination directory exists before attempting backup
+            # Ensure base destination directory exists
             os.makedirs(DST_DIR, exist_ok=True)
 
-            for f in os.listdir(SRC_DIR):
-                path = os.path.join(SRC_DIR, f)
+            # Walk through the source directory recursively
+            for root_dir, _, files in os.walk(SRC_DIR):
+                for f in files:
+                    path = os.path.join(root_dir, f)
 
-                # Process only files, ignoring directories
-                if os.path.isfile(path):
+                    # Calculate relative path to maintain folder structure
+                    rel_path = os.path.relpath(root_dir, SRC_DIR)
+                    if rel_path == ".":
+                        current_target_dir = DST_DIR
+                    else:
+                        current_target_dir = os.path.join(DST_DIR, rel_path)
+
+                    # Ensure the target subdirectory exists
+                    os.makedirs(current_target_dir, exist_ok=True)
+
                     mtime = os.path.getmtime(path)
-
-                    # Format timestamp and construct target path
                     date_str = datetime.fromtimestamp(mtime).strftime("%Y%m%d_%H%M%S")
-                    target_path = os.path.join(DST_DIR, f"{date_str}_{f}")
+                    target_path = os.path.join(current_target_dir, f"{date_str}_{f}")
 
                     if not os.path.exists(target_path):
                         # Copy file to the dynamically created destination folder
                         shutil.copy2(path, target_path)
-                        log(f"Backed up: {f}. Triggering image correlation.")
+                        log_path = f if rel_path == "." else os.path.join(rel_path, f)
+                        log(f"Backed up: {log_path}. Triggering image correlation.")
 
-                        # Update GUI string with exact HH:MM:SS format
+                        # Update globals for screenshot saving and GUI
+                        latest_backup_target_dir = current_target_dir
                         last_backup_time_str = datetime.now().strftime("%H:%M:%S")
                         trigger_correlation.set()
 
@@ -174,7 +185,10 @@ def image_task():
 
                 if max_val > 0.9:
                     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    screenshot_path = os.path.join(DST_DIR, f"{ts}_Screenshot.png")
+                    # Save screenshot in the exact subdirectory where the save occurred
+                    screenshot_path = os.path.join(
+                        latest_backup_target_dir, f"{ts}_Screenshot.png"
+                    )
 
                     sct.shot(mon=2, output=screenshot_path)
                     log(f"Threshold reached! Screenshot saved: {screenshot_path}")
@@ -191,7 +205,10 @@ def image_task():
                 # Wait for the manual hotkey event to be triggered by the user
                 if trigger_manual_screenshot.is_set():
                     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    screenshot_path = os.path.join(DST_DIR, f"{ts}_Screenshot.png")
+                    # Save screenshot in the exact subdirectory where the save occurred
+                    screenshot_path = os.path.join(
+                        latest_backup_target_dir, f"{ts}_Screenshot.png"
+                    )
 
                     sct.shot(mon=2, output=screenshot_path)
                     log(f"Manual hotkey pressed! Screenshot saved: {screenshot_path}")
@@ -211,7 +228,7 @@ def manual_screenshot_callback():
 
 def apply_config():
     global SRC_DIR, DST_DIR, IMG_PATH, MONITOR_ROI, SCREENSHOT_MODE, SCREENSHOT_HOTKEY, current_hotkey_hook
-    global EXIT_HOTKEY, current_exit_hook
+    global EXIT_HOTKEY, current_exit_hook, latest_backup_target_dir
 
     # Check if the specified image file exists on disk (Only needed in Auto mode)
     temp_img_path = os.path.join(SCRIPT_DIR, img_name_var.get())
@@ -228,6 +245,7 @@ def apply_config():
     # Apply new GUI values to global memory variables
     SRC_DIR = src_dir_var.get()
     DST_DIR = os.path.join(SCRIPT_DIR, backup_folder_var.get())
+    latest_backup_target_dir = DST_DIR
     IMG_PATH = temp_img_path
     MONITOR_ROI = {
         "top": int(roi_top_var.get()),
