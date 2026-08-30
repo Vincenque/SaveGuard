@@ -104,26 +104,35 @@ def stop_all(*args):
 
 def backup_task():
     global last_backup_time_str
-    os.makedirs(DST_DIR, exist_ok=True)
 
     while running:
-        for f in os.listdir(SRC_DIR):
-            path = os.path.join(SRC_DIR, f)
+        try:
+            # Ensure destination directory exists before attempting backup
+            os.makedirs(DST_DIR, exist_ok=True)
 
-            # Check if it is a file and process it regardless of its extension or name
-            if os.path.isfile(path):
-                mtime = os.path.getmtime(path)
+            for f in os.listdir(SRC_DIR):
+                path = os.path.join(SRC_DIR, f)
 
-                date_str = datetime.fromtimestamp(mtime).strftime("%Y%m%d_%H%M%S")
-                target_path = os.path.join(DST_DIR, f"{date_str}_{f}")
+                # Process only files, ignoring directories
+                if os.path.isfile(path):
+                    mtime = os.path.getmtime(path)
 
-                if not os.path.exists(target_path):
-                    shutil.copy2(path, target_path)
-                    log(f"Backed up: {f}. Triggering image correlation.")
+                    # Format timestamp and construct target path
+                    date_str = datetime.fromtimestamp(mtime).strftime("%Y%m%d_%H%M%S")
+                    target_path = os.path.join(DST_DIR, f"{date_str}_{f}")
 
-                    # Update GUI string with exact HH:MM:SS format
-                    last_backup_time_str = datetime.now().strftime("%H:%M:%S")
-                    trigger_correlation.set()
+                    if not os.path.exists(target_path):
+                        # Copy file to the dynamically created destination folder
+                        shutil.copy2(path, target_path)
+                        log(f"Backed up: {f}. Triggering image correlation.")
+
+                        # Update GUI string with exact HH:MM:SS format
+                        last_backup_time_str = datetime.now().strftime("%H:%M:%S")
+                        trigger_correlation.set()
+
+        except Exception as e:
+            # Log any file system errors to prevent thread crash
+            log(f"Backup task encountered an error: {e}")
 
         time.sleep(1)
 
@@ -286,6 +295,108 @@ def save_config():
         json.dump(new_config, f, indent=4)
 
     log("Configuration saved to file and applied in memory.")
+
+
+def load_custom_config():
+    # Open file dialog to select a config file
+    filepath = filedialog.askopenfilename(
+        initialdir=SCRIPT_DIR,
+        title="Select Configuration File",
+        filetypes=(
+            ("Text files", "*.txt"),
+            ("JSON files", "*.json"),
+            ("All files", "*.*"),
+        ),
+    )
+
+    # Stop execution if user canceled the dialog
+    if not filepath:
+        return
+
+    try:
+        # Read and parse the selected JSON file
+        with open(filepath, "r") as f:
+            new_config = json.load(f)
+
+        # Update all StringVar variables with loaded data
+        src_dir_var.set(new_config["SRC_DIR"])
+        backup_folder_var.set(new_config["BACKUP_FOLDER"])
+        img_name_var.set(new_config["IMG_NAME"])
+
+        # Update ROI variables
+        roi_top_var.set(str(new_config["MONITOR_ROI"]["top"]))
+        roi_left_var.set(str(new_config["MONITOR_ROI"]["left"]))
+        roi_width_var.set(str(new_config["MONITOR_ROI"]["width"]))
+        roi_height_var.set(str(new_config["MONITOR_ROI"]["height"]))
+
+        # Update mode and hotkeys variables
+        mode_var.set(new_config["SCREENSHOT_MODE"])
+        hotkey_var.set(new_config["SCREENSHOT_HOTKEY"])
+        exit_hotkey_var.set(new_config["EXIT_HOTKEY"])
+
+        # Reset button texts to normal state
+        btn_rebind.config(text="Bind new hotkey", state="normal")
+        btn_rebind_exit.config(text="Bind new hotkey", state="normal")
+
+        # Apply loaded config to memory and log success
+        apply_config()
+        log(f"Custom configuration loaded from: {filepath}")
+
+    except Exception as e:
+        # Display error message if loading fails
+        log(f"Error loading custom config: {e}")
+        messagebox.showerror("Error", f"Failed to load configuration:\n{e}")
+
+
+def save_custom_config():
+    # Stop saving if configuration validation fails
+    if not apply_config():
+        return
+
+    # Open file dialog to choose save destination
+    filepath = filedialog.asksaveasfilename(
+        initialdir=SCRIPT_DIR,
+        title="Save Configuration As",
+        defaultextension=".txt",
+        filetypes=(
+            ("Text files", "*.txt"),
+            ("JSON files", "*.json"),
+            ("All files", "*.*"),
+        ),
+    )
+
+    # Stop execution if user canceled the dialog
+    if not filepath:
+        return
+
+    # Create dictionary from current UI values
+    new_config = {
+        "SRC_DIR": src_dir_var.get(),
+        "BACKUP_FOLDER": backup_folder_var.get(),
+        "IMG_NAME": img_name_var.get(),
+        "MONITOR_ROI": {
+            "top": int(roi_top_var.get()),
+            "left": int(roi_left_var.get()),
+            "width": int(roi_width_var.get()),
+            "height": int(roi_height_var.get()),
+        },
+        "SCREENSHOT_MODE": mode_var.get(),
+        "SCREENSHOT_HOTKEY": hotkey_var.get(),
+        "EXIT_HOTKEY": exit_hotkey_var.get(),
+    }
+
+    try:
+        # Save the dictionary as a JSON file
+        with open(filepath, "w") as f:
+            json.dump(new_config, f, indent=4)
+
+        # Log success after writing to file
+        log(f"Custom configuration saved to: {filepath}")
+
+    except Exception as e:
+        # Display error message if saving fails
+        log(f"Error saving custom config: {e}")
+        messagebox.showerror("Error", f"Failed to save configuration:\n{e}")
 
 
 def update_gui():
@@ -550,13 +661,25 @@ btn_rebind_exit.grid(row=8, column=2, sticky="w")
 button_frame = tk.Frame(tab_settings)
 button_frame.grid(row=9, column=0, columnspan=5, pady=20)
 
-# Apply button (memory only) and Save button (memory + file)
-tk.Button(button_frame, text="Apply", command=apply_btn_click, bg="lightgreen").pack(
+# Top row: Load and Export custom configs
+top_btn_frame = tk.Frame(button_frame)
+top_btn_frame.pack(side="top", pady=5)
+tk.Button(top_btn_frame, text="Load Config...", command=load_custom_config).pack(
     side="left", padx=10
 )
+tk.Button(top_btn_frame, text="Export Config As...", command=save_custom_config).pack(
+    side="left", padx=10
+)
+
+# Bottom row: Apply and Save to default config.txt
+bot_btn_frame = tk.Frame(button_frame)
+bot_btn_frame.pack(side="top", pady=5)
 tk.Button(
-    button_frame,
-    text="Apply and save configuration",
+    bot_btn_frame, text="Apply (Memory only)", command=apply_btn_click, bg="lightgreen"
+).pack(side="left", padx=10)
+tk.Button(
+    bot_btn_frame,
+    text="Apply and save as default",
     command=save_config,
     bg="lightblue",
 ).pack(side="left", padx=10)
